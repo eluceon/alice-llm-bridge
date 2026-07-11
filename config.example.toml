@@ -1,0 +1,50 @@
+# Copy to config.toml and adjust for your family.
+
+[server]
+listen = "0.0.0.0:8080"
+allowed_user_ids = ["..."]
+
+[defaults]
+profile = "Дима"
+context_window = 12
+reply_budget_ms = 2800
+provider_timeout_secs = 45
+utc_offset_hours = 3
+
+[providers.deepseek]
+base_url = "https://api.deepseek.com/v1"
+api_key_env = "DEEPSEEK_API_KEY"
+
+[models.fast]
+provider = "deepseek"
+model = "deepseek-chat"
+max_tokens = 300
+temperature = 0.7
+input_price_per_mtok = 0.27
+output_price_per_mtok = 1.10
+
+[models.smart]
+provider = "deepseek"
+model = "deepseek-reasoner"
+max_tokens = 400
+input_price_per_mtok = 0.55
+output_price_per_mtok = 2.19
+
+[[profiles]]
+name = "Дима"
+aliases = ["дима", "папа"]
+birthday = "1985-03-10"
+role = "adult"
+persona = "Общайся на равных, можно технические детали."
+
+[[profiles]]
+name = "Маша"
+aliases = ["маша", "дочь"]
+birthday = "2016-09-02"
+role = "child"
+persona = "Дочь, отвечай простыми словами и без пугающих тем."
+
+[[modes]]
+name = "fairy_tale"
+triggers = ["расскажи сказку", "сказка"]
+prompt = "Расскажи короткую добрую сказку с участием собеседника."
