@@ -12,14 +12,16 @@ services:
         condition: service_healthy
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: bridge
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: bridge
+      # Bootstrap superuser, used only by docker/postgres/initdb on first
+      # start to provision the least-privilege "bridge" role below.
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      APP_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U bridge"]
       interval: 5s

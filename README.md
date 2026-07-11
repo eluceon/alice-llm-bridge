@@ -126,14 +126,21 @@ On a VPS with a domain pointed at it:
 
 ```bash
 git clone <this repo> && cd alice-llm-bridge
-cp .env.example .env      # fill in DOMAIN, POSTGRES_PASSWORD, WEBHOOK_SECRET, provider keys
+cp .env.example .env      # fill in DOMAIN, POSTGRES_SUPERUSER_PASSWORD,
+                           # POSTGRES_PASSWORD, WEBHOOK_SECRET, provider keys
 cp config.example.toml config.toml   # adjust family profiles and models
 docker compose up -d --build
 ```
 
 `docker-compose.yml` runs three services: `app` (this server), `postgres`
 (conversation history), and `caddy` (automatic Let's Encrypt TLS, reverse
-proxying to `app`). Migrations run automatically on startup.
+proxying to `app`). On first start, `docker/postgres/initdb` provisions a
+`bridge` role and database with no superuser rights — the only script that
+runs as the Postgres superuser is that one-time bootstrap; the app always
+connects as `bridge`. Application tables live in a dedicated `bridge`
+schema (not `public`), created by the app's own migration since a database
+owner can create schemas without superuser rights. Migrations run
+automatically on every server startup.
 
 ## Skill registration
 
