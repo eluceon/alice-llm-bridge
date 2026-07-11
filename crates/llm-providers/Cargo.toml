@@ -1,0 +1,18 @@
+[package]
+name = "llm-providers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Chat provider abstraction and OpenAI-compatible client"
+
+[dependencies]
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+wiremock = { workspace = true }
