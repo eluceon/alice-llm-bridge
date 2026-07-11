@@ -5,8 +5,11 @@
 //! [`llm_providers::ChatProvider`] for models and [`ConversationStore`]
 //! for persistence — so it stays free of HTTP and database concerns.
 
+pub mod command;
 mod error;
+mod mode;
 mod profile;
 
 pub use error::{CoreError, Result};
+pub use mode::Mode;
 pub use profile::{FamilyRoster, Profile, ProfileRole};
