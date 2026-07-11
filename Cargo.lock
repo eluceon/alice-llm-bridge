@@ -183,6 +183,7 @@ version = "0.1.0"
 dependencies = [
  "alice-protocol",
  "anyhow",
+ "async-trait",
  "axum",
  "bridge-core",
  "chrono",

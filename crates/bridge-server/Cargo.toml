@@ -8,6 +8,7 @@ description = "Axum webhook server for the Alice LLM bridge"
 [dependencies]
 alice-protocol = { workspace = true }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 axum = { workspace = true }
 bridge-core = { workspace = true }
 chrono = { workspace = true }
