@@ -132,15 +132,16 @@ cp config.example.toml config.toml   # adjust family profiles and models
 docker compose up -d --build
 ```
 
-`docker-compose.yml` runs three services: `app` (this server), `postgres`
-(conversation history), and `caddy` (automatic Let's Encrypt TLS, reverse
-proxying to `app`). On first start, `docker/postgres/initdb` provisions a
-`bridge` role and database with no superuser rights — the only script that
-runs as the Postgres superuser is that one-time bootstrap; the app always
-connects as `bridge`. Application tables live in a dedicated `bridge`
-schema (not `public`), created by the app's own migration since a database
-owner can create schemas without superuser rights. Migrations run
-automatically on every server startup.
+`docker-compose.yml` runs three services: `app` (`docker/app/Dockerfile`),
+`postgres` (conversation history, provisioned by `docker/postgres/initdb`),
+and `caddy` (`docker/caddy/Caddyfile`, automatic Let's Encrypt TLS, reverse
+proxying to `app`).
+
+On first start, the postgres init script creates a non-superuser `bridge`
+role and database — the app never connects with superuser rights — and a
+dedicated `bridge` schema instead of `public`. Table migrations run
+automatically on every server startup and stay schema-agnostic, relying on
+`bridge`'s default `search_path`.
 
 ## Skill registration
 

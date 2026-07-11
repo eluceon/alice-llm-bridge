@@ -1,10 +1,12 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
     restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: postgres://bridge:${POSTGRES_PASSWORD}@postgres:5432/bridge
+      DATABASE_URL: postgres://${APP_USER:-bridge}:${POSTGRES_PASSWORD}@postgres:5432/${APP_DB:-bridge}
     volumes:
       - ./config.toml:/app/config.toml:ro
     depends_on:
@@ -15,15 +17,16 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      # Bootstrap superuser, used only by docker/postgres/initdb on first
-      # start to provision the least-privilege "bridge" role below.
       POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      APP_USER: ${APP_USER:-bridge}
       APP_PASSWORD: ${POSTGRES_PASSWORD}
+      APP_DB: ${APP_DB:-bridge}
+      APP_SCHEMA: ${APP_SCHEMA:-bridge}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/postgres/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bridge"]
+      test: ["CMD-SHELL", "pg_isready -U ${APP_USER:-bridge}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -37,7 +40,7 @@ services:
     environment:
       DOMAIN: ${DOMAIN}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
 
 volumes:

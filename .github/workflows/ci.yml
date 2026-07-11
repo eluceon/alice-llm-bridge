@@ -39,4 +39,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t alice-llm-bridge .
+      - run: docker build -t alice-llm-bridge -f docker/app/Dockerfile .

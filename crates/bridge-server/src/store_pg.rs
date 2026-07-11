@@ -32,14 +32,14 @@ fn role_from_str(role: &str) -> MessageRole {
 impl ConversationStore for PgStore {
     async fn record_exchange(&self, exchange: &ExchangeRecord) -> Result<(), StoreError> {
         let mut tx = self.pool.begin().await.map_err(db_err)?;
-        sqlx::query("INSERT INTO bridge.messages (profile, role, content) VALUES ($1, 'user', $2)")
+        sqlx::query("INSERT INTO messages (profile, role, content) VALUES ($1, 'user', $2)")
             .bind(&exchange.profile)
             .bind(&exchange.user_text)
             .execute(&mut *tx)
             .await
             .map_err(db_err)?;
         sqlx::query(
-            "INSERT INTO bridge.messages \
+            "INSERT INTO messages \
              (profile, role, content, model, prompt_tokens, completion_tokens, cost_micros) \
              VALUES ($1, 'assistant', $2, $3, $4, $5, $6)",
         )
@@ -61,7 +61,7 @@ impl ConversationStore for PgStore {
         limit: usize,
     ) -> Result<Vec<StoredMessage>, StoreError> {
         let rows = sqlx::query(
-            "SELECT role, content FROM bridge.messages WHERE profile = $1 ORDER BY id DESC LIMIT $2",
+            "SELECT role, content FROM messages WHERE profile = $1 ORDER BY id DESC LIMIT $2",
         )
         .bind(profile)
         .bind(limit as i64)
@@ -81,7 +81,7 @@ impl ConversationStore for PgStore {
 
     async fn summary(&self, profile: &str) -> Result<Option<Summary>, StoreError> {
         let row = sqlx::query(
-            "SELECT content, covers_until_message_id FROM bridge.summaries WHERE profile = $1",
+            "SELECT content, covers_until_message_id FROM summaries WHERE profile = $1",
         )
         .bind(profile)
         .fetch_optional(&self.pool)
@@ -95,7 +95,7 @@ impl ConversationStore for PgStore {
 
     async fn upsert_summary(&self, profile: &str, summary: &Summary) -> Result<(), StoreError> {
         sqlx::query(
-            "INSERT INTO bridge.summaries (profile, content, covers_until_message_id, updated_at) \
+            "INSERT INTO summaries (profile, content, covers_until_message_id, updated_at) \
              VALUES ($1, $2, $3, now()) \
              ON CONFLICT (profile) DO UPDATE \
              SET content = $2, covers_until_message_id = $3, updated_at = now()",
@@ -115,10 +115,10 @@ impl ConversationStore for PgStore {
         keep_last: usize,
     ) -> Result<Vec<(i64, StoredMessage)>, StoreError> {
         let rows = sqlx::query(
-            "SELECT m.id, m.role, m.content FROM bridge.messages m \
+            "SELECT m.id, m.role, m.content FROM messages m \
              WHERE m.profile = $1 \
                AND m.id > COALESCE(\
-                   (SELECT covers_until_message_id FROM bridge.summaries WHERE profile = $1), 0) \
+                   (SELECT covers_until_message_id FROM summaries WHERE profile = $1), 0) \
              ORDER BY m.id",
         )
         .bind(profile)
@@ -143,12 +143,12 @@ impl ConversationStore for PgStore {
 
     async fn clear_profile(&self, profile: &str) -> Result<(), StoreError> {
         let mut tx = self.pool.begin().await.map_err(db_err)?;
-        sqlx::query("DELETE FROM bridge.messages WHERE profile = $1")
+        sqlx::query("DELETE FROM messages WHERE profile = $1")
             .bind(profile)
             .execute(&mut *tx)
             .await
             .map_err(db_err)?;
-        sqlx::query("DELETE FROM bridge.summaries WHERE profile = $1")
+        sqlx::query("DELETE FROM summaries WHERE profile = $1")
             .bind(profile)
             .execute(&mut *tx)
             .await
@@ -160,7 +160,7 @@ impl ConversationStore for PgStore {
         let row = sqlx::query(
             "SELECT COUNT(*) FILTER (WHERE role = 'assistant') AS requests, \
                     COALESCE(SUM(cost_micros), 0)::BIGINT AS cost_micros \
-             FROM bridge.messages WHERE created_at >= $1",
+             FROM messages WHERE created_at >= $1",
         )
         .bind(since)
         .fetch_one(&self.pool)

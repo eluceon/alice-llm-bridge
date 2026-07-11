@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+    CREATE USER "$APP_USER" PASSWORD '$APP_PASSWORD';
+    CREATE DATABASE "$APP_DB" OWNER "$APP_USER";
+EOSQL
+
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$APP_DB" <<-EOSQL
+    CREATE SCHEMA IF NOT EXISTS "$APP_SCHEMA" AUTHORIZATION "$APP_USER";
+    ALTER ROLE "$APP_USER" IN DATABASE "$APP_DB" SET search_path TO "$APP_SCHEMA", public;
+EOSQL

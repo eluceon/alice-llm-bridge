@@ -1,9 +1,4 @@
--- The application role owns its database, so creating a schema here needs
--- no superuser rights; only role/database provisioning does (see
--- docker/postgres/initdb).
-CREATE SCHEMA IF NOT EXISTS bridge;
-
-CREATE TABLE bridge.messages (
+CREATE TABLE messages (
     id BIGSERIAL PRIMARY KEY,
     profile TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
@@ -15,10 +10,10 @@ CREATE TABLE bridge.messages (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX messages_profile_id_idx ON bridge.messages (profile, id);
-CREATE INDEX messages_created_at_idx ON bridge.messages (created_at);
+CREATE INDEX messages_profile_id_idx ON messages (profile, id);
+CREATE INDEX messages_created_at_idx ON messages (created_at);
 
-CREATE TABLE bridge.summaries (
+CREATE TABLE summaries (
     profile TEXT PRIMARY KEY,
     content TEXT NOT NULL,
     covers_until_message_id BIGINT NOT NULL,
