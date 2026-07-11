@@ -9,7 +9,9 @@ pub mod command;
 mod error;
 mod mode;
 mod profile;
+mod prompt;
 
 pub use error::{CoreError, Result};
 pub use mode::Mode;
 pub use profile::{FamilyRoster, Profile, ProfileRole};
+pub use prompt::{PromptContext, build_system_prompt};
