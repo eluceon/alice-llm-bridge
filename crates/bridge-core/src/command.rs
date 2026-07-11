@@ -50,10 +50,10 @@ pub fn parse(utterance: &str, roster: &FamilyRoster, modes: &[Mode]) -> Parsed {
     }
 
     for prefix in ["это ", "я ", "меня зовут ", "говорит "] {
-        if let Some(rest) = norm.strip_prefix(prefix) {
-            if let Some(profile) = roster.find_by_alias(rest) {
-                return Parsed::Command(Command::Introduce(profile.name.clone()));
-            }
+        if let Some(rest) = norm.strip_prefix(prefix)
+            && let Some(profile) = roster.find_by_alias(rest)
+        {
+            return Parsed::Command(Command::Introduce(profile.name.clone()));
         }
     }
 
@@ -76,14 +76,14 @@ pub fn parse(utterance: &str, roster: &FamilyRoster, modes: &[Mode]) -> Parsed {
         _ => {}
     }
 
-    if norm.starts_with("помни последние") || norm.starts_with("запоминай последние")
-    {
-        if let Some(n) = norm
+    let wants_window =
+        norm.starts_with("помни последние") || norm.starts_with("запоминай последние");
+    if wants_window
+        && let Some(n) = norm
             .split_whitespace()
             .find_map(|w| w.parse::<usize>().ok())
-        {
-            return Parsed::Command(Command::SetWindow(n));
-        }
+    {
+        return Parsed::Command(Command::SetWindow(n));
     }
 
     if norm.contains("умную модель") || norm.contains("умная модель") {

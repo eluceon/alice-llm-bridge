@@ -5,11 +5,15 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chrono::{Datelike, NaiveDate, Utc};
+use llm_providers::{ChatMessage, ChatRequest, ProviderError};
+use tokio::sync::oneshot;
 
 use crate::command::{Command, Parsed, parse};
+use crate::model::{ModelPreset, cost_micros};
 use crate::pending::{PendingAnswers, Poll};
 use crate::phrases;
-use crate::store::ConversationStore;
+use crate::prompt::{PromptContext, build_system_prompt};
+use crate::store::{ConversationStore, ExchangeRecord, MessageRole};
 use crate::{FamilyRoster, Mode, ModelRegistry, ModelTier, UsageStats};
 
 /// Tunables that come from configuration rather than the domain itself.
@@ -155,11 +159,138 @@ impl Engine {
 
     async fn ask_llm(
         &self,
-        _user_id: &str,
-        _question: &str,
-        _tier_override: Option<ModelTier>,
+        user_id: &str,
+        question: &str,
+        tier_override: Option<ModelTier>,
     ) -> String {
-        phrases::PHRASE_INTERNAL_ERROR.to_string()
+        let (profile_name, mode_name, state_tier, window) = {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .expect("engine state mutex poisoned");
+            (
+                state.active_profile.clone(),
+                state.mode.clone(),
+                state.model_tier,
+                state
+                    .window_override
+                    .unwrap_or(self.inner.config.context_window),
+            )
+        };
+        let tier = tier_override.unwrap_or(state_tier);
+
+        let Some(profile) = self.inner.roster.get(&profile_name).cloned() else {
+            tracing::error!(profile = %profile_name, "active profile missing from roster");
+            return phrases::PHRASE_INTERNAL_ERROR.to_string();
+        };
+        let mode = mode_name
+            .as_deref()
+            .and_then(|name| self.inner.modes.iter().find(|m| m.name == name))
+            .cloned();
+
+        let summary = self
+            .inner
+            .store
+            .summary(&profile_name)
+            .await
+            .unwrap_or_else(|err| {
+                tracing::warn!(error = %err, "failed to load summary");
+                None
+            });
+        let history = self
+            .inner
+            .store
+            .recent_messages(&profile_name, window)
+            .await
+            .unwrap_or_else(|err| {
+                tracing::warn!(error = %err, "failed to load history");
+                Vec::new()
+            });
+
+        let system = build_system_prompt(&PromptContext {
+            today: self.today(),
+            profile: &profile,
+            roster: &self.inner.roster,
+            mode: mode.as_ref(),
+            summary: summary.as_ref().map(|s| s.content.as_str()),
+        });
+        let mut messages = Vec::with_capacity(history.len() + 2);
+        messages.push(ChatMessage::system(system));
+        for message in history {
+            messages.push(match message.role {
+                MessageRole::User => ChatMessage::user(message.content),
+                MessageRole::Assistant => ChatMessage::assistant(message.content),
+            });
+        }
+        messages.push(ChatMessage::user(question));
+
+        let preset = self.inner.models.get(tier).clone();
+
+        // Mark before spawning so a completion that races the deadline always
+        // finds a slot to land in; the fast path clears the mark on delivery.
+        self.inner.pending.mark_thinking(user_id);
+        let (sender, receiver) = oneshot::channel();
+        let engine = self.clone();
+        let question = question.to_string();
+        let key = user_id.to_string();
+        tokio::spawn(async move {
+            let reply = engine
+                .generate(&profile_name, &question, &preset, messages)
+                .await;
+            if let Err(reply) = sender.send(reply) {
+                engine.inner.pending.complete(&key, reply);
+            }
+        });
+
+        match tokio::time::timeout(self.inner.config.reply_budget, receiver).await {
+            Ok(Ok(reply)) => {
+                self.inner.pending.clear(user_id);
+                reply
+            }
+            Ok(Err(_closed)) => {
+                self.inner.pending.clear(user_id);
+                tracing::error!("reply task dropped its channel");
+                phrases::PHRASE_INTERNAL_ERROR.to_string()
+            }
+            Err(_deadline) => phrases::PHRASE_THINKING_STARTED.to_string(),
+        }
+    }
+
+    async fn generate(
+        &self,
+        profile: &str,
+        question: &str,
+        preset: &ModelPreset,
+        messages: Vec<ChatMessage>,
+    ) -> String {
+        let request = ChatRequest {
+            model: preset.model.clone(),
+            messages,
+            max_tokens: preset.max_tokens,
+            temperature: preset.temperature,
+        };
+        match preset.provider.chat(&request).await {
+            Ok(completion) => {
+                let record = ExchangeRecord {
+                    profile: profile.to_string(),
+                    user_text: question.to_string(),
+                    assistant_text: completion.text.clone(),
+                    model: preset.model.clone(),
+                    prompt_tokens: completion.usage.prompt_tokens,
+                    completion_tokens: completion.usage.completion_tokens,
+                    cost_micros: cost_micros(&completion.usage, preset),
+                };
+                if let Err(err) = self.inner.store.record_exchange(&record).await {
+                    tracing::error!(error = %err, "failed to record exchange");
+                }
+                completion.text
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, "chat request failed");
+                phrase_for_provider_error(&err).to_string()
+            }
+        }
     }
 
     async fn usage_report(&self) -> String {
@@ -208,7 +339,6 @@ impl Engine {
             .clone()
     }
 
-    #[allow(dead_code)]
     fn today(&self) -> NaiveDate {
         (Utc::now() + chrono::Duration::hours(self.inner.config.utc_offset_hours.into()))
             .date_naive()
@@ -217,6 +347,17 @@ impl Engine {
 
 fn format_usd(stats: UsageStats) -> String {
     format!("{:.2}", stats.cost_micros as f64 / 1_000_000.0)
+}
+
+fn phrase_for_provider_error(err: &ProviderError) -> &'static str {
+    match err {
+        ProviderError::Timeout => phrases::PHRASE_PROVIDER_TIMEOUT,
+        ProviderError::RateLimited => phrases::PHRASE_RATE_LIMITED,
+        ProviderError::Auth => phrases::PHRASE_AUTH_FAILED,
+        ProviderError::Api { .. }
+        | ProviderError::Network(_)
+        | ProviderError::InvalidResponse(_) => phrases::PHRASE_PROVIDER_ERROR,
+    }
 }
 
 #[cfg(test)]
@@ -371,5 +512,112 @@ mod tests {
             engine.handle("u1", "помощь").await,
             crate::phrases::HELP_TEXT
         );
+    }
+
+    #[tokio::test]
+    async fn fast_answer_is_returned_directly_and_recorded() {
+        let store = Arc::new(MemoryStore::new());
+        let fast = ScriptedProvider::replying("Марс — четвёртая планета.");
+        let engine = engine_with(fast.clone(), ScriptedProvider::replying("x"), store.clone());
+
+        let reply = engine.handle("u1", "расскажи про марс").await;
+        assert_eq!(reply, "Марс — четвёртая планета.");
+
+        let messages = store.recent_messages("Дима", 10).await.unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].content, "расскажи про марс");
+        assert_eq!(messages[1].content, "Марс — четвёртая планета.");
+
+        let calls = fast.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert!(calls[0].messages[0].content.contains("голосовой помощник"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn slow_answer_is_deferred_then_delivered() {
+        let store = Arc::new(MemoryStore::new());
+        let fast = ScriptedProvider::slow("долгий ответ", Duration::from_secs(10));
+        let engine = engine_with(fast, ScriptedProvider::replying("x"), store);
+
+        let first = engine.handle("u1", "сложный вопрос").await;
+        assert_eq!(first, crate::phrases::PHRASE_THINKING_STARTED);
+
+        let second = engine.handle("u1", "ну что").await;
+        assert_eq!(second, crate::phrases::PHRASE_STILL_THINKING);
+
+        tokio::time::sleep(Duration::from_secs(11)).await;
+        let third = engine.handle("u1", "ну что там").await;
+        assert_eq!(third, "долгий ответ");
+    }
+
+    #[tokio::test]
+    async fn think_hard_uses_smart_model() {
+        let fast = ScriptedProvider::replying("быстрый");
+        let smart = ScriptedProvider::replying("умный");
+        let engine = engine_with(fast.clone(), smart.clone(), Arc::new(MemoryStore::new()));
+
+        let reply = engine
+            .handle("u1", "подумай как следует что такое энтропия")
+            .await;
+        assert_eq!(reply, "умный");
+        assert_eq!(fast.calls.lock().unwrap().len(), 0);
+        assert_eq!(smart.calls.lock().unwrap().len(), 1);
+        assert_eq!(
+            smart.calls.lock().unwrap()[0]
+                .messages
+                .last()
+                .unwrap()
+                .content,
+            "что такое энтропия"
+        );
+    }
+
+    #[tokio::test]
+    async fn entering_mode_asks_llm_with_mode_prompt() {
+        let fast = ScriptedProvider::replying("Жил-был кот.");
+        let engine = engine_with(
+            fast.clone(),
+            ScriptedProvider::replying("x"),
+            Arc::new(MemoryStore::new()),
+        );
+
+        let reply = engine.handle("u1", "расскажи сказку").await;
+        assert_eq!(reply, "Жил-был кот.");
+        let calls = fast.calls.lock().unwrap();
+        assert!(calls[0].messages[0].content.contains("Рассказывай сказки."));
+    }
+
+    #[tokio::test]
+    async fn provider_errors_become_human_phrases() {
+        for (kind, phrase) in [
+            ("timeout", crate::phrases::PHRASE_PROVIDER_TIMEOUT),
+            ("rate", crate::phrases::PHRASE_RATE_LIMITED),
+            ("auth", crate::phrases::PHRASE_AUTH_FAILED),
+            ("boom", crate::phrases::PHRASE_PROVIDER_ERROR),
+        ] {
+            let engine = engine_with(
+                ScriptedProvider::failing(kind),
+                ScriptedProvider::replying("x"),
+                Arc::new(MemoryStore::new()),
+            );
+            assert_eq!(engine.handle("u1", "вопрос").await, phrase, "kind: {kind}");
+        }
+    }
+
+    #[tokio::test]
+    async fn history_is_included_in_prompt() {
+        let store = Arc::new(MemoryStore::new());
+        let fast = ScriptedProvider::replying("ответ");
+        let engine = engine_with(fast.clone(), ScriptedProvider::replying("x"), store);
+
+        engine.handle("u1", "первый вопрос").await;
+        engine.handle("u1", "второй вопрос").await;
+
+        let calls = fast.calls.lock().unwrap();
+        let second_call = &calls[1];
+        // system + 2 history turns + new question
+        assert_eq!(second_call.messages.len(), 4);
+        assert_eq!(second_call.messages[1].content, "первый вопрос");
+        assert_eq!(second_call.messages[2].content, "ответ");
     }
 }
