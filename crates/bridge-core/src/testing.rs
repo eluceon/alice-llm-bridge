@@ -1,13 +1,80 @@
 //! Test support: in-memory fakes shared by unit and integration tests.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use llm_providers::{ChatCompletion, ChatProvider, ChatRequest, ProviderError, TokenUsage};
 
 use crate::store::{
     ConversationStore, ExchangeRecord, MessageRole, StoreError, StoredMessage, Summary, UsageStats,
 };
+
+/// [`ChatProvider`] fake with a scripted reply, an optional delay and a log
+/// of every request it received.
+pub struct ScriptedProvider {
+    pub delay: Duration,
+    /// `Ok(reply)` or `Err(kind)` where kind is one of
+    /// `"timeout" | "rate" | "auth"`; anything else maps to an API error.
+    pub script: std::result::Result<String, String>,
+    pub calls: Mutex<Vec<ChatRequest>>,
+}
+
+impl ScriptedProvider {
+    pub fn replying(text: &str) -> Arc<Self> {
+        Arc::new(Self {
+            delay: Duration::ZERO,
+            script: Ok(text.to_string()),
+            calls: Mutex::new(Vec::new()),
+        })
+    }
+
+    pub fn slow(text: &str, delay: Duration) -> Arc<Self> {
+        Arc::new(Self {
+            delay,
+            script: Ok(text.to_string()),
+            calls: Mutex::new(Vec::new()),
+        })
+    }
+
+    pub fn failing(kind: &str) -> Arc<Self> {
+        Arc::new(Self {
+            delay: Duration::ZERO,
+            script: Err(kind.to_string()),
+            calls: Mutex::new(Vec::new()),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl ChatProvider for ScriptedProvider {
+    async fn chat(&self, request: &ChatRequest) -> llm_providers::Result<ChatCompletion> {
+        self.calls
+            .lock()
+            .expect("scripted provider mutex poisoned")
+            .push(request.clone());
+        tokio::time::sleep(self.delay).await;
+        match &self.script {
+            Ok(text) => Ok(ChatCompletion {
+                text: text.clone(),
+                usage: TokenUsage {
+                    prompt_tokens: 10,
+                    completion_tokens: 20,
+                },
+            }),
+            Err(kind) => Err(match kind.as_str() {
+                "timeout" => ProviderError::Timeout,
+                "rate" => ProviderError::RateLimited,
+                "auth" => ProviderError::Auth,
+                other => ProviderError::Api {
+                    status: 500,
+                    message: other.to_string(),
+                },
+            }),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 struct Row {

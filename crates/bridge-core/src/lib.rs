@@ -8,6 +8,7 @@
 pub mod command;
 mod error;
 mod mode;
+mod model;
 mod profile;
 mod prompt;
 mod store;
@@ -15,6 +16,7 @@ pub mod testing;
 
 pub use error::{CoreError, Result};
 pub use mode::Mode;
+pub use model::{ModelPreset, ModelRegistry, ModelTier, cost_micros};
 pub use profile::{FamilyRoster, Profile, ProfileRole};
 pub use prompt::{PromptContext, build_system_prompt};
 pub use store::{
