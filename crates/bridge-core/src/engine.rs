@@ -284,12 +284,90 @@ impl Engine {
                 if let Err(err) = self.inner.store.record_exchange(&record).await {
                     tracing::error!(error = %err, "failed to record exchange");
                 }
+                let engine = self.clone();
+                let profile_name = profile.to_string();
+                tokio::spawn(async move {
+                    engine.maybe_summarize(&profile_name).await;
+                });
                 completion.text
             }
             Err(err) => {
                 tracing::warn!(error = %err, "chat request failed");
                 phrase_for_provider_error(&err).to_string()
             }
+        }
+    }
+
+    /// Compresses history older than the active window into a rolling summary
+    /// so long-lived profiles keep cheap prompts.
+    async fn maybe_summarize(&self, profile: &str) {
+        let keep_last = {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .expect("engine state mutex poisoned");
+            state
+                .window_override
+                .unwrap_or(self.inner.config.context_window)
+        };
+        let pending = match self.inner.store.unsummarized(profile, keep_last).await {
+            Ok(rows) => rows,
+            Err(err) => {
+                tracing::warn!(error = %err, "failed to load unsummarized history");
+                return;
+            }
+        };
+        if pending.len() < keep_last {
+            return;
+        }
+
+        let previous = self
+            .inner
+            .store
+            .summary(profile)
+            .await
+            .ok()
+            .flatten()
+            .map(|s| s.content)
+            .unwrap_or_default();
+        let transcript: String = pending
+            .iter()
+            .map(|(_, m)| {
+                let speaker = match m.role {
+                    MessageRole::User => "Пользователь",
+                    MessageRole::Assistant => "Ассистент",
+                };
+                format!("{speaker}: {}\n", m.content)
+            })
+            .collect();
+        let instruction = format!(
+            "Сожми диалог в краткое резюме из трёх-пяти предложений. \
+             Сохрани важные факты о собеседнике и темы разговора.\n\
+             Текущее резюме: {previous}\nНовые реплики:\n{transcript}"
+        );
+
+        let preset = self.inner.models.get(ModelTier::Fast).clone();
+        let request = ChatRequest {
+            model: preset.model.clone(),
+            messages: vec![ChatMessage::system(instruction)],
+            max_tokens: 250,
+            temperature: 0.3,
+        };
+        let content = match preset.provider.chat(&request).await {
+            Ok(completion) => completion.text,
+            Err(err) => {
+                tracing::warn!(error = %err, "summarization request failed");
+                return;
+            }
+        };
+        let covers_until = pending.iter().map(|(id, _)| *id).max().unwrap_or(0);
+        let summary = crate::store::Summary {
+            content,
+            covers_until_message_id: covers_until,
+        };
+        if let Err(err) = self.inner.store.upsert_summary(profile, &summary).await {
+            tracing::warn!(error = %err, "failed to store summary");
         }
     }
 
@@ -619,5 +697,39 @@ mod tests {
         assert_eq!(second_call.messages.len(), 4);
         assert_eq!(second_call.messages[1].content, "первый вопрос");
         assert_eq!(second_call.messages[2].content, "ответ");
+    }
+
+    #[tokio::test]
+    async fn old_history_is_summarized_in_background() {
+        let store = Arc::new(MemoryStore::new());
+        let fast = ScriptedProvider::replying("сжатое резюме");
+        // window = 4 (see engine_with); 3 exchanges = 6 messages -> 2 beyond window,
+        // not enough; 4 exchanges = 8 messages -> 4 beyond window >= window -> summarize
+        let engine = engine_with(fast.clone(), ScriptedProvider::replying("x"), store.clone());
+
+        for n in 1..=4 {
+            engine.handle("u1", &format!("вопрос {n}")).await;
+        }
+        // The summarization request is spawned after each exchange is
+        // recorded; give the scheduler real time to run it.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let summary = store
+            .summary("Дима")
+            .await
+            .unwrap()
+            .expect("summary written");
+        assert_eq!(summary.content, "сжатое резюме");
+        assert!(summary.covers_until_message_id >= 4);
+
+        let calls = fast.calls.lock().unwrap();
+        let summarize_call = calls
+            .iter()
+            .find(|c| c.max_tokens == 250)
+            .expect("summarization request sent");
+        assert!(
+            summarize_call.messages[0].content.contains("резюме")
+                || summarize_call.messages[0].content.contains("Сожми")
+        );
     }
 }
