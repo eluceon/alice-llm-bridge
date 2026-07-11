@@ -6,15 +6,18 @@
 //! for persistence — so it stays free of HTTP and database concerns.
 
 pub mod command;
+mod engine;
 mod error;
 mod mode;
 mod model;
 mod pending;
+pub mod phrases;
 mod profile;
 mod prompt;
 mod store;
 pub mod testing;
 
+pub use engine::{Engine, EngineConfig};
 pub use error::{CoreError, Result};
 pub use mode::Mode;
 pub use model::{ModelPreset, ModelRegistry, ModelTier, cost_micros};
