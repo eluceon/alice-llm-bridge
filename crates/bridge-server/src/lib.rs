@@ -3,4 +3,5 @@
 
 pub mod assemble;
 pub mod config;
+pub mod routes;
 pub mod store_pg;
