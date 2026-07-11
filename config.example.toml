@@ -17,7 +17,7 @@ api_key_env = "DEEPSEEK_API_KEY"
 
 [models.fast]
 provider = "deepseek"
-model = "deepseek-chat"
+model = "deepseek-v4-flash"
 max_tokens = 300
 temperature = 0.7
 input_price_per_mtok = 0.27
@@ -25,7 +25,7 @@ output_price_per_mtok = 1.10
 
 [models.smart]
 provider = "deepseek"
-model = "deepseek-reasoner"
+model = "deepseek-v4-pro"
 max_tokens = 400
 input_price_per_mtok = 0.55
 output_price_per_mtok = 2.19

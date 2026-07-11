@@ -1,7 +1,5 @@
 # alice-llm-bridge
 
-[![CI](https://github.com/eluceon/alice-llm-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/eluceon/alice-llm-bridge/actions/workflows/ci.yml)
-
 A private Yandex Alice skill that turns a Yandex Station into a voice
 interface for large language models. Family members are recognized by name,
 each with their own conversation history, persona and safety rules; context
