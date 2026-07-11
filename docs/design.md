@@ -53,10 +53,14 @@ alice-llm-bridge/
 │  └─ bridge-server/     # axum webhook, config loading, Postgres store,
 │                        # tracing, wiring (main)
 ├─ migrations/           # sqlx migrations
+├─ docker/
+│  ├─ app/Dockerfile
+│  └─ postgres/initdb/   # least-privilege role + schema bootstrap
 ├─ docs/
 ├─ config.example.toml
-├─ docker-compose.yml    # app + postgres + caddy (TLS)
-└─ .env.example
+├─ compose.yaml          # app + postgres (host nginx handles TLS)
+├─ .env.example
+└─ docker/postgres/.env.example
 ```
 
 Dependency directions: `bridge-server` → everything; `bridge-core` →
@@ -215,14 +219,22 @@ mirrors text (no SSML in v1).
   deferred-answer flow (slow mock → "thinking" reply → follow-up returns the
   answer); Postgres via `sqlx::test`.
 - CI (GitHub Actions): `cargo fmt --check`, `clippy -D warnings`, tests,
-  Docker image build.
+  Docker image build + Trivy vulnerability scan.
 
 ## Deployment
 
-VPS with a domain. `docker-compose.yml`: `app` (multi-stage Rust build,
-distroless runtime), `postgres` (volume), `caddy` (automatic Let's Encrypt
-TLS, reverse proxy to `app`). Secrets in `.env` (gitignored, `.env.example`
-committed). The skill is registered in Yandex Dialogs pointing at
+A VPS shared with other services, fronted by the host's own nginx +
+certbot rather than a bundled reverse proxy — `app` publishes only on
+`127.0.0.1`, so it doesn't compete for ports 80/443. `compose.yaml`: `app`
+(multi-stage Rust build, non-root, read-only rootfs, dropped capabilities)
+and `postgres` (dedicated `bridge` role and schema, never superuser or
+`public`). Secrets are split across two `.env` files — root and
+`docker/postgres/` — both gitignored with `.example` variants committed;
+`make up` wraps the two-flag `docker compose` invocation both files
+require. CI (`ci-cd.yml`) builds, Trivy-scans, and pushes the image to
+GHCR on every push to `main`, then deploys over SSH, pinning the exact
+digest and rolling back automatically if the post-deploy health check
+fails. The skill is registered in Yandex Dialogs pointing at
 `https://<domain>/alice/webhook/<secret>` and kept in draft status.
 
 ## Future work

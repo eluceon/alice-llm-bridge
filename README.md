@@ -37,14 +37,14 @@ Backend written in Rust.
 sequenceDiagram
     participant Station as Yandex Station
     participant Dialogs as Yandex Dialogs
-    participant Caddy
+    participant Nginx as nginx (TLS)
     participant Server as bridge-server (axum)
     participant Engine as bridge-core Engine
     participant LLM as LLM provider
 
     Station->>Dialogs: voice utterance
-    Dialogs->>Caddy: POST /alice/webhook/<secret>
-    Caddy->>Server: forward
+    Dialogs->>Nginx: POST /alice/webhook/<secret>
+    Nginx->>Server: reverse proxy
     Server->>Engine: handle(user_id, utterance)
     Engine->>LLM: chat completion
     alt answers within ~2.8s
@@ -122,26 +122,44 @@ Copy `config.example.toml` to `config.toml` and adjust:
 
 ## Deployment
 
-On a VPS with a domain pointed at it:
+`compose.yaml` runs two services: `app` (`docker/app/Dockerfile`, published
+only on `127.0.0.1`) and `postgres` (conversation history, provisioned by
+`docker/postgres/initdb`). TLS termination and the public vhost are handled
+by the host's own nginx + certbot — outside this repo, since a shared VPS
+typically already runs one reverse proxy for every domain on the box.
+
+Secrets are split across two env files: root `.env` (`WEBHOOK_SECRET`,
+provider API keys) and `docker/postgres/.env` (Postgres superuser bootstrap
+password and the app role's own credentials). `postgres`'s own container
+reads its file directly either way, but the `app` service's `DATABASE_URL`
+is assembled from both files at the Compose level — passing only one
+`--env-file` silently blanks the password instead of failing loudly, so
+`make` wraps the two-flag invocation instead of leaving it to be typed by
+hand:
 
 ```bash
 git clone <this repo> && cd alice-llm-bridge
-cp .env.example .env      # fill in DOMAIN, POSTGRES_SUPERUSER_PASSWORD,
-                           # POSTGRES_PASSWORD, WEBHOOK_SECRET, provider keys
-cp config.example.toml config.toml   # adjust family profiles and models
-docker compose up -d --build
+cp .env.example .env
+cp docker/postgres/.env.example docker/postgres/.env   # fill in both files
+cp config.example.toml config.toml                     # adjust family profiles and models
+make up
 ```
-
-`docker-compose.yml` runs three services: `app` (`docker/app/Dockerfile`),
-`postgres` (conversation history, provisioned by `docker/postgres/initdb`),
-and `caddy` (`docker/caddy/Caddyfile`, automatic Let's Encrypt TLS, reverse
-proxying to `app`).
 
 On first start, the postgres init script creates a non-superuser `bridge`
 role and database — the app never connects with superuser rights — and a
 dedicated `bridge` schema instead of `public`. Table migrations run
 automatically on every server startup and stay schema-agnostic, relying on
 `bridge`'s default `search_path`.
+
+### CI/CD
+
+`.github/workflows/ci-cd.yml` runs on every push and pull request against
+`main`: format check, clippy, and the test suite. On a successful push to
+`main` it additionally builds the image, gates the push on a Trivy
+vulnerability scan, publishes it to `ghcr.io/eluceon/alice-llm-bridge`, and
+deploys by SSH — pinning the exact image digest into the server's `.env`,
+recreating only the `app` container, and rolling back automatically if the
+post-deploy health check fails.
 
 ## Skill registration
 
