@@ -1,0 +1,35 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/alice-protocol",
+    "crates/llm-providers",
+    "crates/bridge-core",
+    "crates/bridge-server",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+alice-protocol = { path = "crates/alice-protocol" }
+llm-providers = { path = "crates/llm-providers" }
+bridge-core = { path = "crates/bridge-core" }
+
+anyhow = "1"
+async-trait = "0.1"
+axum = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+dashmap = "6"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "migrate", "macros"] }
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "signal"] }
+toml = "0.8"
+tower = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+wiremock = "0.6"

@@ -1,0 +1,18 @@
+[package]
+name = "bridge-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Dialogue engine: profiles, context, commands, deferred answers"
+
+[dependencies]
+async-trait = { workspace = true }
+chrono = { workspace = true }
+dashmap = { workspace = true }
+llm-providers = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

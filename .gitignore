@@ -1,0 +1,6 @@
+/target
+.env
+config.toml
+.dev/
+.idea/
+.PVS-Studio/

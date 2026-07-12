@@ -1,0 +1,47 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    # ALICE_IMAGE is pinned by the deploy pipeline; local `--build` ignores it.
+    image: ${ALICE_IMAGE:-ghcr.io/eluceon/alice-llm-bridge:main}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${APP_USER:-bridge}:${APP_PASSWORD}@postgres:5432/${APP_DB:-bridge}
+    ports:
+      - "127.0.0.1:${APP_PORT:-8090}:8080"
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    env_file: docker/postgres/.env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${APP_USER:-bridge}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
