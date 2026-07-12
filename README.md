@@ -133,7 +133,16 @@ reads its file directly either way, but the `app` service's `DATABASE_URL`
 is assembled from both files at the Compose level — passing only one
 `--env-file` silently blanks the password instead of failing loudly, so
 `make` wraps the two-flag invocation instead of leaving it to be typed by
-hand:
+hand.
+
+`config.toml` (family profiles, the account allowlist) is gitignored, so
+neither env file nor the git checkout can supply it. Both deploy paths ship
+it explicitly: CI/CD renders it from the `CONFIG_TOML` repository secret,
+the break-glass script (see below) uploads your local copy. Either way the
+server backs up the previous version before swapping and restores it
+alongside the image if the post-deploy health check fails.
+
+For first-time local setup:
 
 ```bash
 git clone <this repo> && cd alice-llm-bridge
@@ -154,11 +163,21 @@ automatically on every server startup and stay schema-agnostic, relying on
 
 `.github/workflows/ci-cd.yml` runs on every push and pull request against
 `main`: format check, clippy, and the test suite. On a successful push to
-`main` it additionally builds the image, gates the push on a Trivy
-vulnerability scan, publishes it to `ghcr.io/eluceon/alice-llm-bridge`, and
-deploys by SSH — pinning the exact image digest into the server's `.env`,
-recreating only the `app` container, and rolling back automatically if the
-post-deploy health check fails.
+`main` (or a manual `workflow_dispatch` run — useful when only the
+`CONFIG_TOML` secret changed and there's no new commit to push) it
+additionally builds the image, gates the push on a Trivy vulnerability
+scan, publishes it to `ghcr.io/eluceon/alice-llm-bridge`, and deploys by
+SSH — pinning the exact image digest into the server's `.env`, syncing
+`config.toml` from the `CONFIG_TOML` secret, force-recreating the `app`
+container so both takes effect, and rolling back the image and config
+together if the post-deploy health check fails.
+
+A break-glass script (kept outside this repo, since it embeds the VPS
+address) covers the same deploy path without waiting on GitHub Actions:
+builds the image locally, transfers it with `docker save | ssh | docker
+load`, and runs the identical swap → force-recreate → health-check →
+rollback sequence under the same `flock` the CI job uses, so a manual run
+and an Actions run can never interleave on the server's files.
 
 ## Skill registration
 

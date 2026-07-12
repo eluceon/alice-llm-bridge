@@ -9,6 +9,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual redeploy — rebuilds and redeploys even without a new commit,
+  # e.g. after rotating the CONFIG_TOML secret.
+  workflow_dispatch: {}
 
 env:
   CARGO_TERM_COLOR: always
@@ -122,7 +125,9 @@ jobs:
   deploy:
     name: Deploy to VPS
     needs: [docker]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -136,15 +141,26 @@ jobs:
           echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
-      - name: Upload compose.yaml
+      # config.toml holds family profiles and the account allowlist; it's
+      # gitignored on purpose, so it can't come from the checkout. It lives
+      # only as this secret and on the server itself.
+      - name: Write config.toml from secret
+        env:
+          CONFIG_TOML: ${{ secrets.CONFIG_TOML }}
+        run: printf '%s\n' "$CONFIG_TOML" > config.toml
+
+      - name: Upload compose.yaml and config.toml
         run: |
           scp -o StrictHostKeyChecking=yes -i ~/.ssh/deploy_key \
             compose.yaml root@${{ secrets.SSH_HOST }}:/opt/alice-llm-bridge/compose.yaml.next
+          scp -o StrictHostKeyChecking=yes -i ~/.ssh/deploy_key \
+            config.toml root@${{ secrets.SSH_HOST }}:/opt/alice-llm-bridge/config.toml.next
 
-      # Everything that touches the live compose.yaml / .env runs under one
-      # flock on the server, on the same lock file the manual break-glass
-      # script (Desktop/deploy-alice.sh) uses — whichever deploy starts
-      # second just waits, instead of the two racing on the same files.
+      # Everything that touches the live compose.yaml / config.toml / .env
+      # runs under one flock on the server, on the same lock file the manual
+      # break-glass script (Desktop/deploy-alice.sh) uses — whichever deploy
+      # starts second just waits, instead of the two racing on the same
+      # files.
       - name: Deploy
         run: |
           ssh -o StrictHostKeyChecking=yes -i ~/.ssh/deploy_key \
@@ -164,6 +180,12 @@ jobs:
             mv compose.yaml.next compose.yaml
             ls -1t compose.yaml.bak-* 2>/dev/null | tail -n +6 | xargs -r rm --
 
+            cp config.toml "config.toml.bak-$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
+            mv config.toml.next config.toml
+            chown 1000:1000 config.toml
+            chmod 400 config.toml
+            ls -1t config.toml.bak-* 2>/dev/null | tail -n +6 | xargs -r rm --
+
             OLD_IMAGE=$(grep -E '^ALICE_IMAGE=' .env 2>/dev/null | cut -d= -f2- || true)
             NEW_IMAGE="ghcr.io/eluceon/alice-llm-bridge@${{ needs.docker.outputs.digest }}"
             grep -v '^ALICE_IMAGE=' .env > .env.next 2>/dev/null || true
@@ -173,7 +195,10 @@ jobs:
             COMPOSE="docker compose --env-file .env --env-file docker/postgres/.env"
 
             $COMPOSE pull app
-            $COMPOSE up -d --remove-orphans --no-deps app
+            # --force-recreate: config.toml is a bind mount, so a content-only
+            # change doesn't trip Compose's own change detection — without
+            # this flag the app container can keep running on stale config.
+            $COMPOSE up -d --remove-orphans --no-deps --force-recreate app
 
             sleep 10
             $COMPOSE logs app --tail 80
@@ -190,11 +215,19 @@ jobs:
             if [ "$HEALTHY" = false ]; then
               echo "Health check failed, rolling back"
               $COMPOSE logs app --tail 100
+
+              LATEST_CONFIG_BAK=$(ls -1t config.toml.bak-* 2>/dev/null | head -n1 || true)
+              if [ -n "$LATEST_CONFIG_BAK" ]; then
+                cp "$LATEST_CONFIG_BAK" config.toml
+                chown 1000:1000 config.toml
+                chmod 400 config.toml
+              fi
+
               if [ -n "$OLD_IMAGE" ]; then
                 grep -v '^ALICE_IMAGE=' .env > .env.next 2>/dev/null || true
                 echo "ALICE_IMAGE=$OLD_IMAGE" >> .env.next
                 mv .env.next .env
-                $COMPOSE up -d --remove-orphans --no-deps app
+                $COMPOSE up -d --remove-orphans --no-deps --force-recreate app
               fi
               exit 1
             fi
