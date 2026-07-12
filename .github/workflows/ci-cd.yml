@@ -136,27 +136,33 @@ jobs:
           echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
-      - name: Sync compose.yaml
+      - name: Upload compose.yaml
         run: |
           scp -o StrictHostKeyChecking=yes -i ~/.ssh/deploy_key \
             compose.yaml root@${{ secrets.SSH_HOST }}:/opt/alice-llm-bridge/compose.yaml.next
-          ssh -o StrictHostKeyChecking=yes -i ~/.ssh/deploy_key \
-            root@${{ secrets.SSH_HOST }} << 'SYNC'
-            set -e
-            cd /opt/alice-llm-bridge
-            docker compose --env-file .env --env-file docker/postgres/.env \
-              -f compose.yaml.next config > /dev/null
-            cp compose.yaml "compose.yaml.bak-$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
-            mv compose.yaml.next compose.yaml
-            ls -1t compose.yaml.bak-* 2>/dev/null | tail -n +6 | xargs -r rm --
-          SYNC
 
+      # Everything that touches the live compose.yaml / .env runs under one
+      # flock on the server, on the same lock file the manual break-glass
+      # script (Desktop/deploy-alice.sh) uses — whichever deploy starts
+      # second just waits, instead of the two racing on the same files.
       - name: Deploy
         run: |
           ssh -o StrictHostKeyChecking=yes -i ~/.ssh/deploy_key \
             root@${{ secrets.SSH_HOST }} << 'REMOTE'
             set -e
             cd /opt/alice-llm-bridge
+
+            exec 200>.deploy.lock
+            if ! flock -w 300 200; then
+              echo "Another deploy is holding the lock after 300s — aborting."
+              exit 1
+            fi
+
+            docker compose --env-file .env --env-file docker/postgres/.env \
+              -f compose.yaml.next config > /dev/null
+            cp compose.yaml "compose.yaml.bak-$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
+            mv compose.yaml.next compose.yaml
+            ls -1t compose.yaml.bak-* 2>/dev/null | tail -n +6 | xargs -r rm --
 
             OLD_IMAGE=$(grep -E '^ALICE_IMAGE=' .env 2>/dev/null | cut -d= -f2- || true)
             NEW_IMAGE="ghcr.io/eluceon/alice-llm-bridge@${{ needs.docker.outputs.digest }}"

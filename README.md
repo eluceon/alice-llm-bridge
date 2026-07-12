@@ -140,6 +140,7 @@ git clone <this repo> && cd alice-llm-bridge
 cp .env.example .env
 cp docker/postgres/.env.example docker/postgres/.env   # fill in both files
 cp config.example.toml config.toml                     # adjust family profiles and models
+chown 1000:1000 config.toml && chmod 400 config.toml   # matches the container's non-root user
 make up
 ```
 
