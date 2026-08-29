@@ -1,4 +1,4 @@
-FROM rust:1.91-slim@sha256:f75071363e7f4771769d4cf81b1b7b290e607f4d4459e8731f6abdcee9982dc8 AS builder
+FROM rust:1.98-slim@sha256:17d1ba895198f9934c6314ec5346a0d5115372f3243390c3d731e242f35c2f27 AS builder
 WORKDIR /build
 COPY . .
 RUN cargo build --release -p bridge-server
