@@ -81,6 +81,9 @@ pub struct ModelPresetConfig {
     pub max_tokens: u32,
     #[serde(default = "default_temperature")]
     pub temperature: f32,
+    /// Sent to the provider as `reasoning_effort`, e.g. `"low"`. Omitted when unset.
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
     pub input_price_per_mtok: f64,
     pub output_price_per_mtok: f64,
 }
@@ -218,9 +221,21 @@ prompt = "Рассказывай сказки."
         assert_eq!(config.defaults.reply_budget_ms, 2800);
         assert_eq!(config.defaults.utc_offset_hours, 3);
         assert_eq!(config.models.fast.temperature, 0.7);
+        assert_eq!(config.models.fast.reasoning_effort, None);
         assert_eq!(config.profiles[0].name, "Дима");
         assert_eq!(config.profiles[0].role, "adult");
         assert_eq!(config.modes.len(), 1);
+    }
+
+    #[test]
+    fn parses_reasoning_effort() {
+        let text = sample().replace(
+            r#"model = "deepseek-chat""#,
+            "model = \"deepseek-chat\"\nreasoning_effort = \"low\"",
+        );
+        let config = AppConfig::from_toml(&text).unwrap();
+        assert_eq!(config.models.fast.reasoning_effort.as_deref(), Some("low"));
+        assert_eq!(config.models.smart.reasoning_effort, None);
     }
 
     #[test]

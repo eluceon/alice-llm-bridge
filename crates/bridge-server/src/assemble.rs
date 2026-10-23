@@ -89,6 +89,7 @@ fn preset(
         model: config.model.clone(),
         max_tokens: config.max_tokens,
         temperature: config.temperature,
+        reasoning_effort: config.reasoning_effort.clone(),
         input_price_per_mtok: config.input_price_per_mtok,
         output_price_per_mtok: config.output_price_per_mtok,
     })

@@ -269,6 +269,7 @@ impl Engine {
             messages,
             max_tokens: preset.max_tokens,
             temperature: preset.temperature,
+            reasoning_effort: preset.reasoning_effort.clone(),
         };
         match preset.provider.chat(&request).await {
             Ok(completion) => {
@@ -353,6 +354,7 @@ impl Engine {
             messages: vec![ChatMessage::system(instruction)],
             max_tokens: 250,
             temperature: 0.3,
+            reasoning_effort: preset.reasoning_effort.clone(),
         };
         let content = match preset.provider.chat(&request).await {
             Ok(completion) => completion.text,
@@ -454,6 +456,7 @@ mod tests {
             model: "test-model".to_string(),
             max_tokens: 300,
             temperature: 0.7,
+            reasoning_effort: None,
             input_price_per_mtok: 1.0,
             output_price_per_mtok: 2.0,
         }

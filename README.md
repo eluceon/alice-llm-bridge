@@ -105,7 +105,8 @@ Copy `config.example.toml` to `config.toml` and adjust:
 - `[providers.<name>]` — `base_url` and the environment variable holding
   the API key for each OpenAI-compatible provider.
 - `[models.fast]` / `[models.smart]` — which provider and model back each
-  preset, token limits and per-million-token prices for cost accounting.
+  preset, token limits, an optional `reasoning_effort` for reasoning models,
+  and per-million-token prices for cost accounting.
 - `[[profiles]]` — one entry per family member: name, spoken aliases,
   optional birthday, `role` (`adult` or `child`), persona text.
 - `[[modes]]` — optional themed conversation presets with trigger phrases.

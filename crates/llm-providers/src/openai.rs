@@ -32,6 +32,7 @@ impl OpenAiCompatClient {
             messages: &request.messages,
             max_tokens: request.max_tokens,
             temperature: request.temperature,
+            reasoning_effort: request.reasoning_effort.as_deref(),
         };
         let response = self
             .http
@@ -109,6 +110,9 @@ struct ApiRequest<'a> {
     messages: &'a [ChatMessage],
     max_tokens: u32,
     temperature: f32,
+    // Skipped when unset so providers without reasoning support never see it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<&'a str>,
 }
 
 #[derive(Deserialize)]

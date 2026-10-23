@@ -17,6 +17,7 @@ fn engine(provider: Arc<ScriptedProvider>) -> Engine {
         model: "test-model".to_string(),
         max_tokens: 300,
         temperature: 0.7,
+        reasoning_effort: None,
         input_price_per_mtok: 1.0,
         output_price_per_mtok: 2.0,
     };

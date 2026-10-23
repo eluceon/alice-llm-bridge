@@ -27,6 +27,9 @@ output_price_per_mtok = 1.10
 provider = "deepseek"
 model = "deepseek-v4-pro"
 max_tokens = 400
+# Optional: sent as `reasoning_effort` to models that support it. Reasoning
+# tokens count toward max_tokens, so leave room for them.
+# reasoning_effort = "low"
 input_price_per_mtok = 0.55
 output_price_per_mtok = 2.19
 

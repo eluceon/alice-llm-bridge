@@ -18,6 +18,7 @@ pub struct ModelPreset {
     pub model: String,
     pub max_tokens: u32,
     pub temperature: f32,
+    pub reasoning_effort: Option<String>,
     /// USD per million prompt tokens.
     pub input_price_per_mtok: f64,
     /// USD per million completion tokens.
@@ -59,6 +60,7 @@ mod tests {
             model: "m".to_string(),
             max_tokens: 100,
             temperature: 0.7,
+            reasoning_effort: None,
             input_price_per_mtok: input,
             output_price_per_mtok: output,
         }
