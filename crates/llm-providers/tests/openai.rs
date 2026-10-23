@@ -13,6 +13,7 @@ fn request() -> ChatRequest {
         ],
         max_tokens: 300,
         temperature: 0.7,
+        reasoning_effort: None,
     }
 }
 
@@ -57,6 +58,40 @@ async fn parses_successful_completion() {
     assert_eq!(completion.text, "Привет! Чем помочь?");
     assert_eq!(completion.usage.prompt_tokens, 25);
     assert_eq!(completion.usage.completion_tokens, 9);
+}
+
+#[tokio::test]
+async fn sends_reasoning_effort_when_set() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(body_partial_json(serde_json::json!({
+            "reasoning_effort": "low"
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(success_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let request = ChatRequest {
+        reasoning_effort: Some("low".to_string()),
+        ..request()
+    };
+    client(&server).chat(&request).await.unwrap();
+}
+
+#[tokio::test]
+async fn omits_reasoning_effort_when_unset() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(success_body()))
+        .mount(&server)
+        .await;
+
+    client(&server).chat(&request()).await.unwrap();
+
+    let received = server.received_requests().await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&received[0].body).unwrap();
+    assert!(body.get("reasoning_effort").is_none());
 }
 
 #[tokio::test]

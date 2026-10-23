@@ -82,7 +82,8 @@ pub trait ChatProvider: Send + Sync {
 }
 ```
 
-`ChatRequest`: messages, model, max_tokens, temperature. `ChatCompletion`:
+`ChatRequest`: messages, model, max_tokens, temperature, optional
+reasoning_effort. `ChatCompletion`:
 text + token usage. `OpenAiCompatClient` implements the trait for any
 `base_url` + API key. `ProviderError` classifies timeout / rate-limit /
 auth / server errors so the dialogue layer can phrase them differently.

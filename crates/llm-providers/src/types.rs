@@ -48,6 +48,8 @@ pub struct ChatRequest {
     pub messages: Vec<ChatMessage>,
     pub max_tokens: u32,
     pub temperature: f32,
+    /// Sent as `reasoning_effort`. `None` keeps the provider default.
+    pub reasoning_effort: Option<String>,
 }
 
 /// Token counts reported by the provider; used for cost accounting.
